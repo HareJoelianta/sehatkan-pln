@@ -28,7 +28,6 @@ def load_data():
     if os.path.exists(DB_FILE):
         try:
             df = pd.read_csv(DB_FILE)
-            # Pastikan kolom Tanggal_Input dalam format datetime untuk filter
             df['Tanggal_Input_DT'] = pd.to_datetime(df['Tanggal_Input'], format="%d/%m/%Y %H:%M")
             for col in columns:
                 if col not in df.columns: df[col] = None
@@ -44,7 +43,6 @@ def save_all_data(df):
 
 def to_excel(df):
     output = BytesIO()
-    # Hapus kolom pembantu datetime sebelum export
     if 'Tanggal_Input_DT' in df.columns:
         df = df.drop(columns=['Tanggal_Input_DT'])
     writer = pd.ExcelWriter(output, engine='openpyxl')
@@ -52,7 +50,6 @@ def to_excel(df):
     writer.close()
     return output.getvalue()
 
-# [Interpretasi Medis Tetap Sama]
 def interpretasi_medis(bb, tb, suhu, tensi, oxi, alko):
     tb_m = tb / 100
     bmi = round(bb / (tb_m ** 2), 2)
@@ -71,15 +68,25 @@ def interpretasi_medis(bb, tb, suhu, tensi, oxi, alko):
     st_alko = "Aman" if alko <= 0.02 else "Mabuk/Gangguan" if alko <= 0.15 else "BAHAYA"
     return bmi, st_bmi, st_suhu, st_tensi, st_oxi, st_alko
 
-# [WhatsApp Link Tetap Sama]
 def link_wa(row):
     no_hp = str(row['No_WA']).strip()
     if no_hp.startswith("0"): no_hp = "62" + no_hp[1:]
     tgl_f = str(row['Tanggal_Input']).split(" ")[0]
-    pesan = (f"HASIL MONITORING KESEHATAN {row['Nama']}\nTanggal: {tgl_f}\nTensi: {row['Tensi']} ({row['Status_Tensi']})\nSuhu: {row['Suhu']}°C\nBMI: {row['Status_BMI']}")
+    pesan = (
+        f"HASIL MONITORING KESEHATAN TANGGAL {tgl_f}\n"
+        f"--------------------------------------------\n"
+        f"Nama: {row['Nama']}\nNIK: {row['NIK']}\n\n"
+        f"Hasil Pemeriksaan:\n"
+        f"* Tensi: {row['Tensi']} ({row['Status_Tensi']})\n"
+        f"* Status BMI: {row['Status_BMI']} ({row['BMI']})\n"
+        f"* Suhu: {row['Suhu']}°C\n"
+        f"* Oximeter: {row['Oximeter']}% ({row['Status_Oximeter']})\n"
+        f"--------------------------------------------\n"
+        f"SEHATKAN - PLN"
+    )
     return f"https://wa.me/{no_hp}?text={urllib.parse.quote(pesan)}"
 
-# ================== UI DASHBOARD ==================
+# ================== UI LOGIN ==================
 if "login" not in st.session_state: st.session_state.login = False
 if not st.session_state.login:
     _, col_log, _ = st.columns([1, 1.2, 1])
@@ -103,9 +110,10 @@ with st.sidebar:
         st.session_state.login = False
         st.rerun()
 
-st.title("🏥 SEHATKAN PLN SITUBONDO V1.2.5")
+st.title("🏥 SEHATKAN PLN SITUBONDO V1.2 (Updated Jan 26)")
 tab1, tab2, tab3 = st.tabs(["📝 Input Data", "📊 Database & Filter", "⚙️ Kelola"])
 
+# --- TAB 1: INPUT DATA ---
 with tab1:
     with st.form("input_form", clear_on_submit=True):
         st.subheader("📌 Identitas & Foto")
@@ -136,60 +144,62 @@ with tab1:
                 bmi, s_bmi, s_suhu, s_tns, s_oxi, s_alk = interpretasi_medis(bb, tb, suhu, tns, oxi, alk)
                 img_name = f"{nik}_{datetime.now().strftime('%H%M%S')}.png"
                 Image.open(foto_input).save(os.path.join(PHOTO_DIR, img_name))
-                new_row = pd.DataFrame([{"Tanggal_Input": datetime.now().strftime("%d/%m/%Y %H:%M"), "Nama": nama, "NIK": nik, "Tempat_Lahir": tmp_lhr, "Tgl_Lahir": tgl_lhr.strftime('%d-%m-%Y'), "Bagian": bagian, "Unit_Kerja": unit_kerja, "No_WA": wa, "BB": bb, "TB": tb, "BMI": bmi, "Status_BMI": s_bmi, "Suhu": suhu, "Status_Suhu": s_suhu, "Tensi": tns, "Status_Tensi": s_tns, "Oximeter": oxi, "Status_Oximeter": s_oxi, "Alkohol": alk, "Status_Alkohol": s_alk, "Pemeriksa": pem, "Nama_Foto": img_name}])
+                new_row = pd.DataFrame([{"Tanggal_Input": datetime.now().strftime("%d/%m/%Y %H:%M"), "Nama": nama, "NIK": nik, "Tempat_Lahir": tmp_lhr, "Tgl_Lahir": tgl_lhr.strftime('%d-%m-%Y'), "Bagian": bagian, "Unit_Kerja": unit_kerja, "No_WA": wa, "BB": bb, "TB": tb, "BMI": bmi, "Status_BMI": s_bmi, "Suhu": suhu, "Status_Suhu": s_suhu, "Tensi": tns, "Status_Tensi": s_tns, "Oximeter": oxi, "Status_Oximeter": s_oxi, "Alkohol": alk, "Status_Alcohol": s_alk, "Pemeriksa": pem, "Nama_Foto": img_name}])
                 save_all_data(pd.concat([load_data(), new_row], ignore_index=True))
                 st.success("✅ Berhasil disimpan!")
                 st.markdown(f'<a href="{link_wa(new_row.iloc[0])}" target="_blank"><button style="background-color: #25D366; color: white; border: none; padding: 10px; border-radius: 5px; width: 100%; cursor: pointer; font-weight: bold;">📲 KIRIM WA</button></a>', unsafe_allow_html=True)
                 time.sleep(1); st.rerun()
 
+# --- TAB 2: DATABASE & FILTER (GRAFIK DI BAWAH) ---
 with tab2:
     df_mon = load_data()
     if not df_mon.empty:
         st.subheader("🔍 Filter Data")
         cf1, cf2, cf3 = st.columns([2, 2, 1])
-        
-        with cf1:
-            start_date = st.date_input("Dari Tanggal", value=date.today() - timedelta(days=7))
-        with cf2:
-            end_date = st.date_input("Sampai Tanggal", value=date.today())
+        with cf1: start_date = st.date_input("Dari Tanggal", value=date.today() - timedelta(days=7))
+        with cf2: end_date = st.date_input("Sampai Tanggal", value=date.today())
         with cf3:
             st.write("<br>", unsafe_allow_html=True)
-            filter_btn = st.button("🔄 Terapkan Filter", use_container_width=True)
+            filter_btn = st.button("🔄 Refresh Data", use_container_width=True)
 
-        # Logika Filter
         mask = (df_mon['Tanggal_Input_DT'].dt.date >= start_date) & (df_mon['Tanggal_Input_DT'].dt.date <= end_date)
         df_filtered = df_mon.loc[mask]
 
         if not df_filtered.empty:
-            st.divider()
+            # 1. Tabel & Download Berada di Atas
             col_t, col_e = st.columns([3, 1])
-            with col_t: st.write(f"Menampilkan **{len(df_filtered)}** data dari periode {start_date} s/d {end_date}")
+            with col_t: st.write(f"Menampilkan **{len(df_filtered)}** data pemeriksaan.")
             with col_e:
                 df_xlsx = to_excel(df_filtered)
                 st.download_button(label="📥 Download Excel Filtered", data=df_xlsx, file_name=f'Rekap_{start_date}_to_{end_date}.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', use_container_width=True)
-
-            c_chart1, c_chart2, c_chart3 = st.columns(3)
-            with c_chart1:
-                st.write("**📊 Status BMI**")
-                st.bar_chart(df_filtered['Status_BMI'].value_counts())
-            with c_chart2:
-                st.write("**📊 Status Tensi**")
-                st.bar_chart(df_filtered['Status_Tensi'].value_counts())
-            with c_chart3:
-                st.write("**📊 Kondisi Suhu**")
-                st.bar_chart(df_filtered['Status_Suhu'].value_counts())
             
             st.dataframe(df_filtered.drop(columns=["Nama_Foto", "Tanggal_Input_DT"]), use_container_width=True, hide_index=True)
+            
+            # 2. Grafik Berada di Bawah Tabel
+            st.divider()
+            st.subheader("📊 Ringkasan Statistik (Filter Terpilih)")
+            ch1, ch2, ch3 = st.columns(3)
+            with ch1:
+                st.write("**Status BMI**")
+                st.bar_chart(df_filtered['Status_BMI'].value_counts(), color="#29b5e8")
+            with ch2:
+                st.write("**Status Tensi**")
+                st.bar_chart(df_filtered['Status_Tensi'].value_counts(), color="#ff4b4b")
+            with ch3:
+                st.write("**Kondisi Suhu**")
+                st.bar_chart(df_filtered['Status_Suhu'].value_counts(), color="#ffaa00")
         else:
-            st.warning("Tidak ada data pada rentang tanggal tersebut.")
+            st.warning("Data tidak ditemukan untuk rentang tanggal tersebut.")
     else:
         st.info("Database masih kosong.")
 
+# --- TAB 3: KELOLA (TETAP SAMA) ---
 with tab3:
     df_manage = load_data()
     if not df_manage.empty:
         st.subheader("⚙️ Kelola Database")
-        edited = st.data_editor(df_manage.drop(columns=["Tanggal_Input_DT"]), use_container_width=True, hide_index=True)
+        st.info("💡 **Tips Hapus:** Sorot baris lalu tekan tombol **Delete** pada keyboard Anda.")
+        edited = st.data_editor(df_manage.drop(columns=["Tanggal_Input_DT"]), use_container_width=True, hide_index=True, num_rows="dynamic")
         if st.button("💾 Simpan Perubahan"):
             save_all_data(edited)
             st.success("Tersimpan!"); st.rerun()
